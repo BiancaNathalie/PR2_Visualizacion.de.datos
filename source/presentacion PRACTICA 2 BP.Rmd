@@ -1,0 +1,883 @@
+---
+title: "Práctica 2: Visualización de datos"
+author: "Bianca Palacios"
+date: '`r format(Sys.Date(),"%e de %B %Y")`'
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: no
+    toc_depth: 2
+  pdf_document:
+    toc: yes
+    number_sections: yes
+    toc_depth: '2'
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load_libraries, include=FALSE}
+#librerias
+library(openxlsx)
+library(dplyr)
+library(ggplot2)
+library(plotly)
+library(ggridges)
+library(patchwork)
+library(cowplot)
+# para modelo arima
+library(forecast)
+# para interactive area chart
+library(hrbrthemes)
+```
+
+
+# Descripción del conjunto de datos
+
+Los datos han sido tomados del Departamento de Salud y Servicios Humanos de EE.UU, en su Centro de control y prevención de enfermedades. La base de datos seleccionada ha sido **Indicadores de ansiedad o depresión basados en la frecuencia informada de los síntomas durante los últimos 7 días** y se accede mediante este [enlace](https://data.cdc.gov/NCHS/Indicators-of-Anxiety-or-Depression-Based-on-Repor/8pt5-q6wp).
+
+La relevancia de los datos reside en el tema que trata al manifestar la importancia del bienestar de la salud mental ante los problemas de ansiedad y depresión que el Covid-19 ha traído a los hogares e impactado a las familias en Estados Unidos. Son datos recolectados y actualizados cada 7 días desde el inicio de la pandemia Covid-19 en el 2020. Se destaca que se ha empleado para el estudio a diferentes grupos de la población, como Estado, edad, raza o etnia, educación, sexo y género con el que se identifican.
+
+En este trabajo se busca analizar de manera visual la información del dataset aplicando diferentes técnicas de visualización y de responder a las preguntas:
+
+* Qué período de tiempo presenta un mayor aumento de la variable CI según los grupos y subgrupos?
+* Qué grupo o subgrupo presenta niveles más altos o bajos de IC?
+* La proyección del valor IC aumenta o disminuye en el siguiente año?
+
+# Análisis y exploración de los datos
+
+La exploración de los datos busca explicar las principales características de los mismos. Ejemplo de los datos que conforman la base de datos. Las variables que la componen son de diferentes tipos: categóricas, numéricas y fecha.
+
+```{r, include=FALSE}
+base <- read.csv2('Indicators_of_Anxiety_or_Depression_Based_on_Reported_Frequency_of_Symptoms_During_Last_7_Days.csv', sep=',')
+base <- as.data.frame(base)
+
+# convertir las variables a factor, numerico y tipo fecha
+
+# factor: Indicator, Group, State, Subgroup
+base$Indicator <- as.factor(base$Indicator)
+base$Group <- as.factor(base$Group)
+base$State <- as.factor(base$State)
+base$Subgroup <- as.factor(base$Subgroup)
+base$Phase <- as.factor(base$Phase)
+base$Time.Period <- as.factor(base$Time.Period)
+base$Time.Period.Label <- as.factor(base$Time.Period.Label)
+
+# numerico: Phase, Value, Low.CI, HighCI, Time.Period
+base$Value <- as.numeric(base$Value)
+base$Time.Period <- as.numeric(base$Time.Period)
+base$Low.CI <- as.numeric(base$Low.CI)
+base$High.CI <- as.numeric(base$High.CI)
+
+# fecha: Time.Period.Start.Date, Time.Period.End.Date
+base$Time.Period.Start.Date <- as.Date(base$Time.Period.Start.Date, format="%m/%d/%Y")
+base$Time.Period.End.Date <- as.Date(base$Time.Period.End.Date, format="%m/%d/%Y")
+```
+
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+str(base)
+```
+
+## Análisis variables categóricas
+
+Se va a analizar la distribución de las **variables categóricas** en función de otras subcategorías como edad, género o nivel de estudio.
+
+### Variable IC
+
+**Distribución del valor IC vs Indicador**
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+g1 <- base %>% ggplot(aes(Indicator, Value, color = Indicator, fill = Indicator)) + 
+  geom_boxplot(alpha=0.5, show.legend = TRUE) +
+  theme_minimal() + 
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) + 
+  xlab("")
+ggplotly(g1) # %>% layout(showlegend = TRUE)
+```
+  
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+# Basic piechart
+colors <- c('rgb(211,94,96)', 'rgb(128,133,133)', 'rgb(144,103,167)', 'rgb(171,104,87)', 'rgb(114,147,203)')
+
+fig <- plot_ly(base, labels = ~Indicator, values = ~Value, type = 'pie',
+               textposition = 'inside',
+               textinfo = 'percent',
+               insidetextfont = list(color = '#FFFFFF'),
+               hoverinfo = 'text',
+               marker = list(colors = colors,
+                      line = list(color = '#FFFFFF', width = 1)),
+               showlegend = TRUE)
+fig <- fig %>% layout(title = 'Registros de Valor IC para cada Indicador',
+         xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
+fig
+```
+
+
+
+**Distribución del valor IC vs Grupos**
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+g2 <- base %>% ggplot(aes(Group, Value, color = Group, fill = Group)) + 
+  geom_boxplot(alpha=0.5, show.legend = TRUE) +
+  theme_minimal() + 
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) + 
+  xlab("")
+ggplotly(g2) # %>% layout(showlegend = TRUE)
+```
+
+
+**Distribución del valor IC en Grupo:Edad vs Subgrupos**
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+base_edad <- base %>% filter(Group=='By Age')
+  
+g3 <- base_edad %>% ggplot(aes(Subgroup, Value, color = Subgroup, fill = Subgroup)) + 
+  geom_boxplot(alpha=0.5, show.legend = TRUE) +
+  theme_minimal() + 
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) + 
+  xlab("")
+ggplotly(g3)
+```
+
+
+**Distribución del valor IC en Grupo:Educación vs Subgrupos**
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+base_edu <- base %>% filter(Group=='By Education')
+  
+g5 <- base_edu %>% ggplot(aes(Subgroup, Value, color = Subgroup, fill = Subgroup)) + 
+  geom_boxplot(alpha=0.5, show.legend = TRUE) +
+  theme_minimal() + 
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) + 
+  xlab("")
+ggplotly(g5) # %>% layout(showlegend = TRUE)
+```
+
+
+**Frecuencia de cada grupo por edad respecto a la fase del proyecto**
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+g2 <- base_edad %>%
+  ggplot(aes(x = Subgroup, fill = Phase)) + geom_bar(show.legend = T) + theme_minimal() + 
+  ylab("Frecuencia") +
+  xlab("Subgrupo Edad") + 
+  theme(plot.title = element_text(size = 10))
+
+ggplotly(g2)
+```
+
+Se observa que en cada fase se ha registrado la misma cantidad de personas para cada grupo de edad.
+
+
+**Distribución del valor IC en Grupo:Status de discapacidad vs Subgrupos**
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+base2 <- base %>% filter(Group=='By Disability status')
+  
+g4 <- base2 %>% ggplot(aes(Subgroup, Value, color = Subgroup, fill = Subgroup)) + 
+  geom_boxplot(alpha=0.5, show.legend = TRUE) +
+  theme_minimal() + 
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) + 
+  xlab("") +  coord_flip()
+
+ggplotly(g4) # %>% layout(showlegend = TRUE)
+```
+
+
+**Distribución del valor IC en Grupo:Identidad de género vs Subgrupos**
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+base2 <- base %>% filter(Group=='By Gender identity')
+  
+g6 <- base2 %>% ggplot(aes(Subgroup, Value, color = Subgroup, fill = Subgroup)) + 
+  geom_boxplot(alpha=0.5, show.legend = TRUE) +
+  theme_minimal() + 
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) + 
+  xlab("") + 
+  guides(fill = guide_legend(title = "Genero")) #+  coord_flip()
+
+ggplotly(g6) # %>% layout(showlegend = TRUE)
+```
+
+
+**Distribución del valor IC en Grupo:By Race/Hispanic ethnicity vs Subgrupos**
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+base2 <- base %>% filter(Group=='By Race/Hispanic ethnicity')
+  
+g7 <- base2 %>% ggplot(aes(Subgroup, Value, color = Subgroup, fill = Subgroup)) + 
+  geom_boxplot(alpha=0.5, show.legend = TRUE) +
+  theme_minimal() + 
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) + 
+  xlab("") + 
+  guides(fill = guide_legend(title = "Race/Hispanic ethnicity")) #+  coord_flip()
+
+ggplotly(g7) # %>% layout(showlegend = TRUE)
+```
+
+
+**Distribución del valor IC en Grupo:Sexo vs Subgrupos**
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+base2 <- base %>% filter(Group=='By Sex')
+  
+g8 <- base2 %>% ggplot(aes(Subgroup, Value, color = Subgroup, fill = Subgroup)) + 
+  geom_boxplot(alpha=0.5, show.legend = TRUE) +
+  theme_minimal() + 
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) + 
+  xlab("") + 
+  guides(fill = guide_legend(title = "Sex")) #+  coord_flip()
+
+ggplotly(g8)
+```
+
+
+**Distribución del valor IC en Grupo:Orientación sexual vs Subgrupos**
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+base2 <- base %>% filter(Group=='By Sexual orientation')
+  
+g9 <- base2 %>% ggplot(aes(Subgroup, Value, color = Subgroup, fill = Subgroup)) + 
+  geom_boxplot(alpha=0.5, show.legend = TRUE) +
+  theme_minimal() + 
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) + 
+  xlab("") + 
+  guides(fill = guide_legend(title = "Sexual orientation"))
+
+ggplotly(g9) # %>% layout(showlegend = TRUE)
+```
+
+
+**Distribución del valor IC en Grupo:Estado vs Subgrupos**
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+base2 <- base %>% filter(Group=='By State')
+  
+g10 <- base2 %>% ggplot(aes(Subgroup, Value, color = Subgroup, fill = Subgroup)) + 
+  geom_boxplot(alpha=0.5, show.legend = TRUE) +
+  theme_minimal() + 
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) + 
+  xlab("")  + 
+  guides(fill = guide_legend(title = "By State")) #+  coord_flip()
+
+ggplotly(g10) # %>% layout(showlegend = TRUE)
+```
+
+
+**Distribución del valor IC en cada Fase**
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+g11 <- base %>% ggplot(aes(Phase, Value, color = Phase, fill = Phase)) + 
+  geom_boxplot(alpha=0.5, show.legend = TRUE) +
+  theme_minimal() + 
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) + 
+  xlab("")  + 
+  guides(fill = guide_legend(title = "Fase"))
+
+ggplotly(g11)
+```
+
+
+**Distribución del valor IC en cada periodo de tiempo**
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+g12 <- base %>% ggplot(aes(Time.Period.Label, Value, color = Time.Period.Label, fill = Time.Period.Label)) + 
+  geom_boxplot(alpha=0.5, show.legend = TRUE) +
+  theme_minimal() + 
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) + 
+  xlab("") + 
+  guides(fill = guide_legend(title = "Periodo de tiempo")) #+  coord_flip()
+
+ggplotly(g12) # %>% layout(showlegend = TRUE)
+```
+
+
+# Evolución de la variable IC
+
+Se busca analizar y visualizar la evolución de los niveles de CI por el periodo de tiempo que los datos han sido tomados. Dado que se trabaja con valores en función del tiempo, una serie de tiempo permite proyectar resultados y estimar valores para un año después.
+
+
+## Serie del valor IC (valor medio)
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+# base con media value en cada period.end.date
+base_med <- base %>%
+  group_by(Time.Period.End.Date) %>%
+  summarise(value = mean(Value))
+
+p2 <- plot_ly(x=base_med$Time.Period.End.Date, mode='lines+markers') %>%
+      add_trace(y = base_med$value, name='Anxiety Disorder',connectgaps = TRUE, name='Valor IC') %>%
+      layout(xaxis = list(title = "Periodo de tiempo"),
+             yaxis = list(title = "Valor IC"))
+p2
+```
+
+
+## Variable IC (valor medio) por Indicador
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+base_med1 <- base %>%
+  group_by(Indicator, Time.Period.End.Date) %>%
+  summarise(value = mean(Value))
+ 
+# Area chart with 3 groups
+y1 <- base_med1 %>% filter(Indicator == 'Symptoms of Anxiety Disorder')
+y2 <- base_med1 %>% filter(Indicator == 'Symptoms of Anxiety Disorder or Depressive Disorder')
+y3 <- base_med1 %>% filter(Indicator == 'Symptoms of Depressive Disorder')
+
+colores <- c(list(color=c("#1E6484")),list(color=c("#40AD9B")),list(color=c("#B0DFDD")),list(color=c("#581845")))
+
+p2 <- plot_ly(x=y1$Time.Period.End.Date,mode='lines+markers') %>%
+        add_trace(y = y1$value, name='Anxiety Disorder',
+                  connectgaps = TRUE, fill="tonexty",
+                  line=colores[1],
+                  marker=colores[1], 
+                  fillcolor = colores[1]) %>%
+        add_trace(y = y2$value, name='Anxiety Disorder and Depressive Disorder',
+                  connectgaps = TRUE, fill="tonexty",
+                  line=colores[2],
+                  marker=colores[2],
+                  fillcolor = colores[2]) %>%
+        add_trace(y = y3$value, name='Depressive Disorder', 
+                  connectgaps = TRUE, fill="tonexty",
+                  line=colores[3],
+                  marker=colores[3],
+                  fillcolor = colores[3]) %>%
+        layout(xaxis = list(title = "Periodo de tiempo"),
+          yaxis = list(title = "Valor IC"))
+p2
+```
+
+
+## Variable IC (valor medio) por Edad
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+base_age <- base %>% filter(Group=='By Age') %>%
+  group_by(Subgroup, Time.Period.End.Date) %>%
+  summarise(value = mean(Value))
+ 
+# Area chart with 3 groups
+y1 <- base_age %>% filter(Subgroup == '18 - 29 years')
+y2 <- base_age %>% filter(Subgroup == '30 - 39 years')
+y3 <- base_age %>% filter(Subgroup == '40 - 49 years')
+y4 <- base_age %>% filter(Subgroup == '50 - 59 years')
+y5 <- base_age %>% filter(Subgroup == '60 - 69 years')
+y6 <- base_age %>% filter(Subgroup == '70 - 79 years')
+y7 <- base_age %>% filter(Subgroup == '80 years and above')
+
+#colores <- c(list(color=c("#581845")),list(color=c("#C70039")),list(color=c("#FF5733")))
+colores <- c(list(color=c("#1E6484")),list(color=c("#40AD9B")),list(color=c("#B0DFDD")),
+             list(color=c("#ABAA8E")),list(color=c("#347828")),list(color=c("#642D29")),
+             list(color=c("#581845")))
+
+p <- plot_ly(x=y1$Time.Period.End.Date, fill="tonexty", 
+             mode='lines+markers') %>%
+        add_trace(y = y1$value, name='18 - 29 years',
+                  connectgaps = TRUE,
+                  line=colores[1],
+                  marker=colores[1], 
+                  fillcolor = colores[1]) %>%
+        add_trace(y = y2$value, name='30 - 39 years',
+                  connectgaps = TRUE,
+                  line=colores[2],
+                  marker=colores[2],
+                  fillcolor = colores[2]) %>%
+        add_trace(y = y3$value, name='40 - 49 years', 
+                  connectgaps = TRUE,
+                  line=colores[3],
+                  marker=colores[3],
+                  fillcolor = colores[3]) %>%
+        add_trace(y = y4$value, name='50 - 59 years',
+                  connectgaps = TRUE,
+                  line=colores[4],
+                  marker=colores[4], 
+                  fillcolor = colores[4]) %>%
+        add_trace(y = y5$value, name='60 - 69 years',
+                  connectgaps = TRUE,
+                  line=colores[5],
+                  marker=colores[5],
+                  fillcolor = colores[5]) %>%
+        add_trace(y = y6$value, name='70 - 79 years', 
+                  connectgaps = TRUE,
+                  line=colores[6],
+                  marker=colores[6],
+                  fillcolor = colores[6]) %>%
+        add_trace(y = y7$value, name='80 years and above',
+                  connectgaps = TRUE,
+                  line=colores[7],
+                  marker=colores[7], 
+                  fillcolor = colores[7]) %>%
+        layout(xaxis = list(title = "Periodo de tiempo"),
+          yaxis = list(title = "Valor IC"))
+p
+```
+
+## Variable IC (valor medio) por Status de discapacidad
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+base_dis <- base %>% filter(Group=='By Disability status') %>%
+  group_by(Subgroup, Time.Period.End.Date) %>%
+  summarise(value = mean(Value))
+ 
+# Area chart with 2 groups
+y1 <- base_dis %>% filter(Subgroup == 'With disability')
+y2 <- base_dis %>% filter(Subgroup == 'Without disability')
+
+#colores <- c(list(color=c("#581845")),list(color=c("#C70039")),list(color=c("#FF5733")))
+colores <- c(list(color=c("#1E6484")),list(color=c("#40AD9B")))
+
+p <- plot_ly(x=y1$Time.Period.End.Date, fill="tonexty", 
+             mode='lines+markers') %>%
+        add_trace(y = y1$value, name='With disability',
+                  connectgaps = TRUE,
+                  line=colores[1],
+                  marker=colores[1], 
+                  fillcolor = colores[1]) %>%
+        add_trace(y = y2$value, name='Without disability',
+                  connectgaps = TRUE,
+                  line=colores[2],
+                  marker=colores[2],
+                  fillcolor = colores[2]) %>%
+        layout(xaxis = list(title = "Periodo de tiempo"),
+          yaxis = list(title = "Valor IC"))
+p
+```
+
+
+## Variable IC (valor medio) por Educación
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+base_edu <- base %>% filter(Group=='By Education') %>%
+  group_by(Subgroup, Time.Period.End.Date) %>%
+  summarise(value = mean(Value))
+ 
+# Area chart with 4 groups
+y1 <- base_edu %>% filter(Subgroup == "Bachelor's degree or higher")
+y2 <- base_edu %>% filter(Subgroup == "High school diploma or GED")
+y3 <- base_edu %>% filter(Subgroup == "Less than a high school diploma")
+y4 <- base_edu %>% filter(Subgroup == "Some college/Associate's degree")
+
+colores <- c(list(color=c("#ABAA8E")),list(color=c("#40AD9B")),
+             list(color=c("#1E6484")),list(color=c("#B0DFDD")))
+
+p <- plot_ly(x=y1$Time.Period.End.Date, fill="tonexty", 
+             mode='lines+markers') %>%
+        add_trace(y = y1$value, name="Bachelor's degree or higher",
+                  connectgaps = TRUE,
+                  line=colores[1],
+                  marker=colores[1], 
+                  fillcolor = colores[1]) %>%
+        add_trace(y = y2$value, name="High school diploma or GED",
+                  connectgaps = TRUE,
+                  line=colores[2],
+                  marker=colores[2],
+                  fillcolor = colores[2]) %>%
+        add_trace(y = y3$value, name="Less than a high school diploma", 
+                  connectgaps = TRUE,
+                  line=colores[3],
+                  marker=colores[3],
+                  fillcolor = colores[3]) %>%
+        add_trace(y = y4$value, name="Some college/Associate's degree",
+                  connectgaps = TRUE,
+                  line=colores[4],
+                  marker=colores[4], 
+                  fillcolor = colores[4]) %>%
+        layout(xaxis = list(title = "Periodo de tiempo"),
+          yaxis = list(title = "Valor IC"))
+p
+```
+
+
+## Variable IC (valor medio) por Identidad de Género
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+base_gen <- base %>% filter(Group=='By Gender identity') %>%
+  group_by(Subgroup, Time.Period.End.Date) %>%
+  summarise(value = mean(Value))
+ 
+# Area chart with 3 groups
+y1 <- base_gen %>% filter(Subgroup == 'Cis-gender female')
+y2 <- base_gen %>% filter(Subgroup == 'Cis-gender male')
+y3 <- base_gen %>% filter(Subgroup == 'Transgender')
+
+#colores <- c(list(color=c("#581845")),list(color=c("#C70039")),list(color=c("#FF5733")))
+colores <- c(list(color=c("#1E6484")),list(color=c("#40AD9B")),list(color=c("#B0DFDD")))
+
+p <- plot_ly(x=y1$Time.Period.End.Date, fill="tonexty", 
+             mode='lines+markers') %>%
+        add_trace(y = y1$value, name='Cis-gender female',
+                  connectgaps = TRUE,
+                  line=colores[1],
+                  marker=colores[1], 
+                  fillcolor = colores[1]) %>%
+        add_trace(y = y2$value, name='Cis-gender Male',
+                  connectgaps = TRUE,
+                  line=colores[2],
+                  marker=colores[2],
+                  fillcolor = colores[2]) %>%
+        add_trace(y = y3$value, name='Transgender', 
+                  connectgaps = TRUE,
+                  line=colores[3],
+                  marker=colores[3],
+                  fillcolor = colores[3])%>%
+        layout(xaxis = list(title = "Periodo de tiempo"),
+          yaxis = list(title = "Valor IC"))
+p
+```
+
+
+## Variable IC (valor medio) por Raza/Etnia Hispana
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+base_raza <- base %>% filter(Group=='By Race/Hispanic ethnicity') %>%
+  group_by(Subgroup, Time.Period.End.Date) %>%
+  summarise(value = mean(Value))
+ 
+# Area chart with 3 groups
+y1 <- base_raza %>% filter(Subgroup == 'Hispanic or Latino')
+y2 <- base_raza %>% filter(Subgroup == 'Non-Hispanic Asian, single race')
+y3 <- base_raza %>% filter(Subgroup == 'Non-Hispanic Black, single race')
+y4 <- base_raza %>% filter(Subgroup == 'Non-Hispanic White, single race')
+y5 <- base_raza %>% filter(Subgroup == 'Non-Hispanic, other races and multiple races')
+
+#colores <- c(list(color=c("#581845")),list(color=c("#C70039")),list(color=c("#FF5733")))
+colores <- c(list(color=c("#1E6484")),list(color=c("#40AD9B")),list(color=c("#B0DFDD")),
+             list(color=c("#ABAA8E")),list(color=c("#347828")))
+
+p <- plot_ly(x=y1$Time.Period.End.Date, fill="tonexty", 
+             mode='lines+markers') %>%
+        add_trace(y = y1$value, name='Hispanic or Latino',
+                  connectgaps = TRUE,
+                  line=colores[1],
+                  marker=colores[1], 
+                  fillcolor = colores[1]) %>%
+        add_trace(y = y2$value, name='Non-Hispanic Asian, single race',
+                  connectgaps = TRUE,
+                  line=colores[2],
+                  marker=colores[2],
+                  fillcolor = colores[2]) %>%
+        add_trace(y = y3$value, name='Non-Hispanic Black, single race', 
+                  connectgaps = TRUE,
+                  line=colores[3],
+                  marker=colores[3],
+                  fillcolor = colores[3]) %>%
+        add_trace(y = y4$value, name='Non-Hispanic White, single race',
+                  connectgaps = TRUE,
+                  line=colores[4],
+                  marker=colores[4], 
+                  fillcolor = colores[4]) %>%
+        add_trace(y = y5$value, name='Non-Hispanic, other races and multiple races',
+                  connectgaps = TRUE,
+                  line=colores[5],
+                  marker=colores[5],
+                  fillcolor = colores[5]) %>%
+        layout(xaxis = list(title = "Periodo de tiempo"),
+          yaxis = list(title = "Valor IC"))
+p
+```
+
+## Variable IC (valor medio) por Sexo
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+base_sex <- base %>% filter(Group=='By Sex') %>%
+  group_by(Subgroup, Time.Period.End.Date) %>%
+  summarise(value = mean(Value))
+ 
+# Area chart with 2 groups
+y1 <- base_sex %>% filter(Subgroup == 'Female')
+y2 <- base_sex %>% filter(Subgroup == 'Male')
+
+colores <- c(list(color=c("#40AD9B")), list(color=c("#1E6484")))
+
+p <- plot_ly(x=y1$Time.Period.End.Date, fill="tonexty", 
+             mode='lines+markers') %>%
+        add_trace(y = y1$value, name='Female',
+                  connectgaps = TRUE,
+                  line=colores[1],
+                  marker=colores[1], 
+                  fillcolor = colores[1]) %>%
+        add_trace(y = y2$value, name='Male',
+                  connectgaps = TRUE,
+                  line=colores[2],
+                  marker=colores[2],
+                  fillcolor = colores[2]) %>%
+        layout(xaxis = list(title = "Periodo de tiempo"),
+          yaxis = list(title = "Valor IC"))
+p
+```
+
+
+
+## Variable IC (valor medio) por Orientación Sexual
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+base_or <- base %>% filter(Group=='By Sexual orientation') %>%
+  group_by(Subgroup, Time.Period.End.Date) %>%
+  summarise(value = mean(Value))
+ 
+# Area chart with 3 groups
+y1 <- base_or %>% filter(Subgroup == 'Bisexual')
+y2 <- base_or %>% filter(Subgroup == 'Gay or lesbian')
+y3 <- base_or %>% filter(Subgroup == 'Straight')
+
+colores <- c(list(color=c("#1E6484")),list(color=c("#40AD9B")),list(color=c("#B0DFDD")))
+
+p <- plot_ly(x=y1$Time.Period.End.Date, fill="tonexty", 
+             mode='lines+markers') %>%
+        add_trace(y = y1$value, name='Bisexual',
+                  connectgaps = TRUE,
+                  line=colores[1],
+                  marker=colores[1], 
+                  fillcolor = colores[1]) %>%
+        add_trace(y = y2$value, name='Gay or lesbian',
+                  connectgaps = TRUE,
+                  line=colores[2],
+                  marker=colores[2],
+                  fillcolor = colores[2]) %>%
+        add_trace(y = y3$value, name='Straight', 
+                  connectgaps = TRUE,
+                  line=colores[3],
+                  marker=colores[3],
+                  fillcolor = colores[3]) %>%
+        layout(xaxis = list(title = "Periodo de tiempo"),
+          yaxis = list(title = "Valor IC"))
+p
+```
+
+
+## Variable IC (valor medio) por Estado
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+base_est <- base %>% filter(Group=='By State') %>%
+  group_by(Subgroup, Time.Period.End.Date) %>%
+  summarise(value = mean(Value))
+
+names = c('Alabama', 'Alaska', 'Arizona','Arkansas', 'California','Colorado','Connecticut','Delaware','District of Columbia','Florida','Georgia','Hawaii','Idaho',
+          'Illinois','Indiana','Iowa','Kansas','Kentucky','Lousiana','Maine','Maryland','Massachusetts','Michigan','Minnesota','Mississippi','Missouri','Montana',
+          'Nebraska','Nevada','New Hampshire','New Jersey','New Mexico','New York','North Carolina','North Dakota','Ohio','Oklahoma','Oregon','Pennsylvania','Rhode Island',
+          'South Carolina','South Dakota','Tennessee','Texas','Utah','Vermont','Virginia','Washington','West Virginia','Wisconsin','Wyoming')
+
+# Area chart with groups
+y1 <- base_est %>% filter(Subgroup == 'Alabama')
+y2 <- base_est %>% filter(Subgroup == 'Alaska')
+y3 <- base_est %>% filter(Subgroup == 'Arizona')
+y4 <- base_est %>% filter(Subgroup == 'Arkansas')
+y5 <- base_est %>% filter(Subgroup == 'California')
+y6 <- base_est %>% filter(Subgroup == 'Colorado')
+y7 <- base_est %>% filter(Subgroup == 'Connecticut')
+y8 <- base_est %>% filter(Subgroup == 'Delaware')
+y9 <- base_est %>% filter(Subgroup == 'District of Columbia')
+y10 <- base_est %>% filter(Subgroup == 'Florida')
+y11 <- base_est %>% filter(Subgroup == 'Georgia')
+y12 <- base_est %>% filter(Subgroup == 'Hawaii')
+y13 <- base_est %>% filter(Subgroup == 'Idaho')
+y14 <- base_est %>% filter(Subgroup == 'Illinois')
+y15 <- base_est %>% filter(Subgroup == 'Indiana')
+y16 <- base_est %>% filter(Subgroup == 'Iowa')
+y17 <- base_est %>% filter(Subgroup == 'Kansas')
+y18 <- base_est %>% filter(Subgroup == 'Kentucky')
+y19 <- base_est %>% filter(Subgroup == 'Lousiana')
+y20 <- base_est %>% filter(Subgroup == 'Maine')
+y21 <- base_est %>% filter(Subgroup == 'Maryland')
+y22 <- base_est %>% filter(Subgroup == 'Massachusetts')
+y23 <- base_est %>% filter(Subgroup == 'Michigan')
+y24 <- base_est %>% filter(Subgroup == 'Minnesota')
+y25 <- base_est %>% filter(Subgroup == 'Mississippi')
+y26 <- base_est %>% filter(Subgroup == 'Missouri')
+y27 <- base_est %>% filter(Subgroup == 'Montana')
+y28 <- base_est %>% filter(Subgroup == 'Nebraska')
+y29 <- base_est %>% filter(Subgroup == 'Nevada')
+y30 <- base_est %>% filter(Subgroup == 'New Hampshire')
+y31 <- base_est %>% filter(Subgroup == 'New Jersey')
+y32 <- base_est %>% filter(Subgroup == 'New Mexico')
+y33 <- base_est %>% filter(Subgroup == 'New York')
+y34 <- base_est %>% filter(Subgroup == 'North Carolina')
+y35 <- base_est %>% filter(Subgroup == 'North Dakota')
+y36 <- base_est %>% filter(Subgroup == 'Ohio')
+y37 <- base_est %>% filter(Subgroup == 'Oklahoma')
+y38 <- base_est %>% filter(Subgroup == 'Oregon')
+y39 <- base_est %>% filter(Subgroup == 'Pennsylvania')
+y40 <- base_est %>% filter(Subgroup == 'Rhode Island')
+y41 <- base_est %>% filter(Subgroup == 'South Carolina')
+y42 <- base_est %>% filter(Subgroup == 'South Dakota')
+y43 <- base_est %>% filter(Subgroup == 'Tennessee')
+y44 <- base_est %>% filter(Subgroup == 'Texas')
+y45 <- base_est %>% filter(Subgroup == 'Utah')
+y46 <- base_est %>% filter(Subgroup == 'Vermont')
+y47 <- base_est %>% filter(Subgroup == 'Virginia')
+y48 <- base_est %>% filter(Subgroup == 'Washington')
+y49 <- base_est %>% filter(Subgroup == 'West Virginia')
+y50 <- base_est %>% filter(Subgroup == 'Wisconsin')
+y51 <- base_est %>% filter(Subgroup == 'Wyoming')
+
+p <- plot_ly(mode='lines+markers') %>%
+        add_trace(x=y1$Time.Period.End.Date,y = y1$value, name=names[1],connectgaps = TRUE) %>%
+        add_trace(x=y2$Time.Period.End.Date,y = y2$value, name=names[2],connectgaps = TRUE) %>%
+        add_trace(x=y3$Time.Period.End.Date,y = y3$value, name=names[3],connectgaps = TRUE) %>%
+        add_trace(x=y4$Time.Period.End.Date,y = y4$value, name=names[4],connectgaps = TRUE) %>%
+        add_trace(x=y5$Time.Period.End.Date,y = y5$value, name=names[5],connectgaps = TRUE) %>%
+        add_trace(x=y6$Time.Period.End.Date,y = y6$value, name=names[6],connectgaps = TRUE) %>%
+        add_trace(x=y7$Time.Period.End.Date,y = y7$value, name=names[7],connectgaps = TRUE) %>%
+        add_trace(x=y8$Time.Period.End.Date,y = y8$value, name=names[8],connectgaps = TRUE) %>%
+        add_trace(x=y9$Time.Period.End.Date,y = y9$value, name=names[9],connectgaps = TRUE) %>%
+        add_trace(x=y10$Time.Period.End.Date,y = y10$value, name=names[10],connectgaps = TRUE) %>%
+        add_trace(x=y11$Time.Period.End.Date,y = y11$value, name=names[11],connectgaps = TRUE) %>%
+        add_trace(x=y12$Time.Period.End.Date,y = y12$value, name=names[12],connectgaps = TRUE) %>%
+        add_trace(x=y13$Time.Period.End.Date,y = y13$value, name=names[13],connectgaps = TRUE) %>%
+        add_trace(x=y14$Time.Period.End.Date,y = y14$value, name=names[14],connectgaps = TRUE) %>%
+        add_trace(x=y15$Time.Period.End.Date,y = y15$value, name=names[15],connectgaps = TRUE) %>%
+        add_trace(x=y16$Time.Period.End.Date,y = y16$value, name=names[16],connectgaps = TRUE) %>%
+        add_trace(x=y17$Time.Period.End.Date,y = y17$value, name=names[17],connectgaps = TRUE) %>%
+        add_trace(x=y18$Time.Period.End.Date,y = y18$value, name=names[18],connectgaps = TRUE) %>%
+        add_trace(x=y19$Time.Period.End.Date,y = y19$value, name=names[19],connectgaps = TRUE) %>%
+        add_trace(x=y20$Time.Period.End.Date,y = y20$value, name=names[20],connectgaps = TRUE) %>%
+        add_trace(x=y21$Time.Period.End.Date,y = y21$value, name=names[21],connectgaps = TRUE) %>%
+        add_trace(x=y22$Time.Period.End.Date,y = y22$value, name=names[22],connectgaps = TRUE) %>%
+        add_trace(x=y23$Time.Period.End.Date,y = y23$value, name=names[23],connectgaps = TRUE) %>%
+        add_trace(x=y24$Time.Period.End.Date,y = y24$value, name=names[24],connectgaps = TRUE) %>%
+        add_trace(x=y25$Time.Period.End.Date,y = y25$value, name=names[25],connectgaps = TRUE) %>%
+        add_trace(x=y26$Time.Period.End.Date,y = y26$value, name=names[26],connectgaps = TRUE) %>%
+        add_trace(x=y27$Time.Period.End.Date,y = y27$value, name=names[27],connectgaps = TRUE) %>%
+        add_trace(x=y28$Time.Period.End.Date,y = y28$value, name=names[28],connectgaps = TRUE) %>%
+        add_trace(x=y29$Time.Period.End.Date,y = y29$value, name=names[29],connectgaps = TRUE) %>%
+        add_trace(x=y30$Time.Period.End.Date,y = y30$value, name=names[30],connectgaps = TRUE) %>%
+        add_trace(x=y31$Time.Period.End.Date,y = y31$value, name=names[31],connectgaps = TRUE) %>%
+        add_trace(x=y32$Time.Period.End.Date,y = y32$value, name=names[32],connectgaps = TRUE) %>%
+        add_trace(x=y33$Time.Period.End.Date,y = y33$value, name=names[33],connectgaps = TRUE) %>%
+        add_trace(x=y34$Time.Period.End.Date,y = y34$value, name=names[34],connectgaps = TRUE) %>%
+        add_trace(x=y35$Time.Period.End.Date,y = y35$value, name=names[35],connectgaps = TRUE) %>%
+        add_trace(x=y36$Time.Period.End.Date,y = y36$value, name=names[36],connectgaps = TRUE) %>%
+        add_trace(x=y37$Time.Period.End.Date,y = y37$value, name=names[37],connectgaps = TRUE) %>%
+        add_trace(x=y38$Time.Period.End.Date,y = y38$value, name=names[38],connectgaps = TRUE) %>%
+        add_trace(x=y39$Time.Period.End.Date,y = y39$value, name=names[39],connectgaps = TRUE) %>%
+        add_trace(x=y40$Time.Period.End.Date,y = y40$value, name=names[40],connectgaps = TRUE) %>%
+        add_trace(x=y41$Time.Period.End.Date,y = y41$value, name=names[41],connectgaps = TRUE) %>%
+        add_trace(x=y42$Time.Period.End.Date,y = y42$value, name=names[42],connectgaps = TRUE) %>%
+        add_trace(x=y43$Time.Period.End.Date,y = y43$value, name=names[43],connectgaps = TRUE) %>%
+        add_trace(x=y44$Time.Period.End.Date,y = y44$value, name=names[44],connectgaps = TRUE) %>%
+        add_trace(x=y45$Time.Period.End.Date,y = y45$value, name=names[45],connectgaps = TRUE) %>%
+        add_trace(x=y46$Time.Period.End.Date,y = y46$value, name=names[46],connectgaps = TRUE) %>%
+        add_trace(x=y47$Time.Period.End.Date,y = y47$value, name=names[47],connectgaps = TRUE) %>%
+        add_trace(x=y48$Time.Period.End.Date,y = y48$value, name=names[48],connectgaps = TRUE) %>%
+        add_trace(x=y49$Time.Period.End.Date,y = y49$value, name=names[49],connectgaps = TRUE) %>%
+        add_trace(x=y50$Time.Period.End.Date,y = y50$value, name=names[50],connectgaps = TRUE) %>%
+        add_trace(x=y51$Time.Period.End.Date,y = y51$value, name=names[51],connectgaps = TRUE) %>%
+        layout(xaxis = list(title = "Periodo de tiempo"),yaxis = list(title = "Valor IC"))
+p
+```
+
+
+
+# MODELO DE PREDICCION ARIMA
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+# usando auto arima
+
+# se seleccionan las variables: Indicator, Group, State, Subgroup, Phase,  Time.Period.Start.Date, Time.Period.End.Date, Value, Low.CI, High.CI
+base1 <- base[,c('Indicator', 'Group', 'State', 'Subgroup', 'Phase',  
+              'Time.Period.Start.Date', 'Time.Period.End.Date','Value', 'Low.CI', 'High.CI')]
+
+#serie de tiempo
+ts_serie <- ts(base1,start = c(2020,4), end = c(2023,1), frequency = 12)
+
+# columna a calcular serie es los valores de CI
+modelo <- auto.arima(ts_serie[,8])
+
+summary(modelo)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+# pronostico
+pronostico <- forecast(modelo, 12, level=95)
+
+#### graficar
+# Color de fondo gris claro
+par(bg = "#f7f7f7")
+plot(pronostico, cex.main = 1.2, cex.lab = 0.9, lwd=2, main = 'Pronóstico de valor IC',
+     ylab='Valor CI')
+```
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+# year 2023 resultados
+#df_pronosticos <-data.frame(pronostico$mean,pronostico$lower,pronostico$upper)
+```
+
+
+## Pronóstico con Arima del valor IC por Indicador
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+y1 <- base %>% filter(Indicator == 'Symptoms of Anxiety Disorder')
+y2 <- base %>% filter(Indicator == 'Symptoms of Anxiety Disorder or Depressive Disorder')
+y3 <- base %>% filter(Indicator == 'Symptoms of Depressive Disorder')
+
+# usando auto arima
+
+# se seleccionan las variables: Indicator, Group, State, Subgroup, Phase,  Time.Period.Start.Date, Time.Period.End.Date, Value, Low.CI, High.CI
+
+base1 <- y1[,c('Indicator', 'Group', 'State', 'Subgroup', 'Phase',  
+              'Time.Period.Start.Date', 'Time.Period.End.Date','Value', 'Low.CI', 'High.CI')]
+base2 <- y2[,c('Indicator', 'Group', 'State', 'Subgroup', 'Phase',  
+              'Time.Period.Start.Date', 'Time.Period.End.Date','Value', 'Low.CI', 'High.CI')]
+base3 <- y3[,c('Indicator', 'Group', 'State', 'Subgroup', 'Phase',  
+              'Time.Period.Start.Date', 'Time.Period.End.Date','Value', 'Low.CI', 'High.CI')]
+
+
+#serie de tiempo
+ts_serie1 <- ts(base1,start = c(2020,4), end = c(2023,1), frequency = 12)
+ts_serie2 <- ts(base2,start = c(2020,4), end = c(2023,1), frequency = 12)
+ts_serie3 <- ts(base3,start = c(2020,4), end = c(2023,1), frequency = 12)
+
+# columna a calcular serie es los valores de CI
+modelo1 <- auto.arima(ts_serie1[,8])
+modelo2 <- auto.arima(ts_serie2[,8])
+modelo3 <- auto.arima(ts_serie3[,8])
+
+#summary(modelo1)
+#summary(modelo2)
+#summary(modelo3)
+
+# pronostico
+pronostico1 <- forecast(modelo1, 12, level=95)
+pronostico2 <- forecast(modelo2, 12, level=95)
+pronostico3 <- forecast(modelo3, 12, level=95)
+```
+
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+### GRAFICO
+# Color de fondo gris claro
+par(bg = "#f7f7f7")
+p1 <- plot(pronostico1, cex.main = 1.2, cex.lab = 0.9, lwd=2, main = 'Pronostico para Transtorno de Ansiedad', ylab='Valor CI')
+p2 <- plot(pronostico2, cex.main = 1.2, cex.lab = 0.9,lwd=2, main = 'Pronostico para Transtorno de Ansiedad y Depresivo', ylab='Valor CI')
+p3 <- plot(pronostico3, cex.main = 1.2, cex.lab = 0.9,lwd=2, main = 'Pronostico para Transtorno Depresivo', ylab='Valor CI')
+
+plot_grid(p1,p2,p3, nrow=1, ncol=3, labels='')
+# Color de fondo blanco
+par(bg = "white")
+```
+
+
+# Resultados
+
+Finalmente, la base de datos y la información que aporta va dirigida al público en general para que conozcan la importancia de la salud mental como efecto colateral de la pandemia Covid-19. Después de tanta explotación de las bases que muestran los casos de fallecidos y tratados por covid, es bueno que se conozca el impacto de la pandemia en la situación laboral, el gasto de los consumidores, la seguridad alimentaria, la vivienda, las interrupciones en la educación y en  especial en el bienestar físico y mental.
+
+Desde lo personal, se busca responder a la interrogante de que periodo de tiempo fue el más difícil, en cuanto a salud mental, para las personas durante la pandemia. Se destaca nuevamente la importancia del bienestar mental en una época con importantes avances tecnológicos.
+
